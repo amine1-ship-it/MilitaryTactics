@@ -11,6 +11,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      JAVA_VERSION: '17'
+      ANDROID_COMPILE_SDK: '29'
+      ANDROID_BUILD_TOOLS: '29.0.3'
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,45 +24,94 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK components
         shell: bash
         run: |
           set -euxo pipefail
 
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+
           echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          if [ -z "${ANDROID_HOME:-}" ]; then
+            echo "ANDROID_HOME is empty after setup."
+            exit 1
+          fi
+
+          # Ensure command line tools exist
+          SDKMANAGER_BIN="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER_BIN" ]; then
+            SDKMANAGER_BIN="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          fi
+
+          # Install cmdline-tools if missing
+          if [ ! -x "${SDKMANAGER_BIN:-}" ]; then
+            echo "cmdline-tools/latest not found. Installing it..."
+            yes | sdkmanager --install "cmdline-tools;latest" || true
+          fi
+
+          if [ -x "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER_BIN="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER_BIN="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          else
+            SDKMANAGER_BIN="$(command -v sdkmanager || true)"
+          fi
+
+          if [ -z "${SDKMANAGER_BIN:-}" ] || [ ! -x "$SDKMANAGER_BIN" ]; then
+            echo "sdkmanager still not found after installation"
+            ls -la "${ANDROID_SDK_ROOT:-$ANDROID_HOME}" || true
+            exit 1
+          fi
 
           # Accept licenses
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER_BIN" --licenses >/dev/null 2>&1 || true
 
-          # Install only the packages needed for the project
-          sdkmanager --install \
+          # Install required Android packages
+          "$SDKMANAGER_BIN" --sdk_root="$ANDROID_SDK_ROOT" --install \
             "platform-tools" \
             "platforms;android-29" \
-            "build-tools;29.0.3"
+            "build-tools;29.0.3" \
+            "cmdline-tools;latest"
 
-      - name: Extract project
+      - name: Extract project from zip
         shell: bash
         run: |
           set -euxo pipefail
 
-          unzip -q MilitaryTactics-source.zip -d extracted
+          if [ ! -f "MilitaryTactics-source.zip" ]; then
+            echo "MilitaryTactics-source.zip not found in repository root"
+            ls -la
+            exit 1
+          fi
 
-          PROJECT_DIR=$(find extracted -type f -path "*/app/build.gradle" | head -n 1 | xargs dirname 2>/dev/null)
+          rm -rf extracted
+          unzip -q "MilitaryTactics-source.zip" -d extracted
+
+          PROJECT_DIR=""
+          while IFS= read -r candidate; do
+            dir="$(dirname "$candidate")"
+            if [ -f "$dir/gradlew" ] || [ -f "$dir/settings.gradle" ] || [ -f "$dir/app/build.gradle" ]; then
+              PROJECT_DIR="$dir"
+              break
+            fi
+          done < <(find extracted -type f \( -name "build.gradle" -o -name "settings.gradle" \) 2>/dev/null)
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "Could not find Android project directory inside the zip."
-            find extracted -maxdepth 5 -print | head -n 200
+            echo "Could not locate Android project directory inside the zip."
+            find extracted -maxdepth 6 -print | head -n 200
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          test -f "$PROJECT_DIR/app/build.gradle"
+          echo "Using project dir: $PROJECT_DIR"
 
       - name: Build APK
         shell: bash
@@ -68,15 +122,16 @@ jobs:
 
           if [ ! -f "gradlew" ]; then
             echo "gradlew not found in project directory: $PROJECT_DIR"
-            find .. -maxdepth 5 -name gradlew -print
+            find .. -maxdepth 5 -name gradlew -print || true
             exit 1
           fi
 
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          chmod +x ./gradlew
+          ./gradlew --no-daemon clean assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MilitaryTactics-APK
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
