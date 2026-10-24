@@ -1,0 +1,48 @@
+
+name: Build Military Tactics APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'MilitaryTactics-source.zip'
+      - '.github/workflows/android-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '6.1.1'
+
+      - name: Extract project
+        run: |
+          unzip -q MilitaryTactics-source.zip -d extracted
+          test -f extracted/MilitaryTactics/app/build.gradle
+
+      - name: Build APK
+        run: |
+          cd extracted/MilitaryTactics
+          gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MilitaryTactics-APK
+          path: extracted/MilitaryTactics/app/build/outputs/apk/debug/app-debug.apk
+          
