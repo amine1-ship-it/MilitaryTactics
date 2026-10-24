@@ -45,41 +45,24 @@ jobs:
             exit 1
           fi
 
-          # Ensure command line tools exist
-          SDKMANAGER_BIN="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER_BIN" ]; then
-            SDKMANAGER_BIN="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          fi
-
-          # Install cmdline-tools if missing
-          if [ ! -x "${SDKMANAGER_BIN:-}" ]; then
-            echo "cmdline-tools/latest not found. Installing it..."
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager not found in PATH. Installing cmdline-tools..."
             yes | sdkmanager --install "cmdline-tools;latest" || true
           fi
 
-          if [ -x "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" ]; then
-            SDKMANAGER_BIN="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
-          elif [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
-            SDKMANAGER_BIN="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          else
-            SDKMANAGER_BIN="$(command -v sdkmanager || true)"
-          fi
-
-          if [ -z "${SDKMANAGER_BIN:-}" ] || [ ! -x "$SDKMANAGER_BIN" ]; then
-            echo "sdkmanager still not found after installation"
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "sdkmanager still not found in PATH after installation."
             ls -la "${ANDROID_SDK_ROOT:-$ANDROID_HOME}" || true
             exit 1
           fi
 
-          # Accept licenses
-          yes | "$SDKMANAGER_BIN" --licenses >/dev/null 2>&1 || true
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-          # Install required Android packages
-          "$SDKMANAGER_BIN" --sdk_root="$ANDROID_SDK_ROOT" --install \
+          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --install \
+            "cmdline-tools;latest" \
             "platform-tools" \
             "platforms;android-29" \
-            "build-tools;29.0.3" \
-            "cmdline-tools;latest"
+            "build-tools;29.0.3"
 
       - name: Extract project from zip
         shell: bash
