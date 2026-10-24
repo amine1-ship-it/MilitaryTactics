@@ -35,26 +35,36 @@ jobs:
 
           mkdir -p "$ANDROID_SDK_ROOT"
 
-          if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+          SDKMANAGER_PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER_PATH" ]; then
             echo "Installing Android cmdline-tools..."
-            cd "$ANDROID_SDK_ROOT"
 
+            rm -rf "$ANDROID_SDK_ROOT/cmdline-tools"
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+
+            cd "$ANDROID_SDK_ROOT/cmdline-tools"
             curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdline-tools.zip
-            rm -rf cmdline-tools
-            mkdir -p cmdline-tools
+            unzip -q cmdline-tools.zip
 
-            unzip -q cmdline-tools.zip -d cmdline-tools-tmp
-            mv cmdline-tools-tmp/cmdline-tools/* cmdline-tools/ || true
-            rm -rf cmdline-tools-tmp cmdline-tools.zip
+            # Fix the official Android SDK folder layout expected by sdkmanager
+            if [ -d "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" ]; then
+              rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+              mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            fi
+
+            rm -f "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools.zip"
           fi
 
+          # Accept licenses
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null 2>&1 || true
 
+          # Install required packages
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --install \
             "platform-tools" \
             "platforms;android-29" \
             "build-tools;29.0.3"
-
+      
       - name: Extract project from zip
         shell: bash
         run: |
